@@ -17,7 +17,7 @@ ll_garch <- function(par, data){
     v <- par[5]
 
     # Check constraints
-    if (beta < 0 || omega <= 0 || v <= 2) {
+    if (v <= 2) {
         return(1e10)
     }
 
@@ -33,7 +33,7 @@ ll_garch <- function(par, data){
     for (t in 2:n){
         sig2[t] <- omega + alpha * ((data[t-1] - mu) / sqrt(sig2[t-1]))^2 + beta * sig2[t-1]
     }
-
+    if (any(!is.finite(sig2)) || any(sig2 <= 0)) return(1e10)
     # Compute loglikelihood
     ll <- n * (lgamma((v + 1) / 2) - lgamma(v / 2) - 0.5 * log(v * pi)) - 0.5 * sum(log(sig2)) - ((v + 1) / 2) * sum(log(1 + (data - mu)^2 / (v * sig2)))
 
@@ -46,15 +46,17 @@ compute_AIC_BIC <- function(logL, n, k){
     bic =  k * log(n) - 2 * logL
     return(c(aic, bic))
 }
-
-# Test using Table 1 optimal parameters for M1 APPL
-test_opt_par <- c(mu = 0.154, omega = 0.038, alpha = 0.090, beta = 0.873, v = 4.146)
+# Test run for APPL from initial parameters (should match Table 1)
+s2_aapl <- var(appl_ret[["RET"]])
+test_opt_par <- c(mu = 0, omega = s2_aapl/50, alpha = 0.05, beta = 0.9, v = 10)
 test_est <- optim(par = test_opt_par, fn = function(p) ll_garch(p, appl_ret), method = "BFGS")
+test_est <- optim(par = test_est$par, fn = function(p) ll_garch(p, appl_ret), method = "BFGS")
 test_aic_bic <- compute_AIC_BIC(-test_est$value, length(appl_ret[["RET"]]), length(test_opt_par))
-print("TEST RUN: Ticker, Estimated Parameters: mu, omega, alpha, beta, v, LogL, AIC, BIC")
-cat("APPL", round(test_est$par, 3), round(-test_est$value, 0), round(test_aic_bic[1], 0), round(test_aic_bic[2], 0), "\n", "\n")
+cat("Starting values:", paste(names(test_opt_par), round(test_opt_par, 3), collapse = ", "), "\n")
+print("TEST RUN: Ticker, Estimated Parameters: mu, omega, alpha, beta, v, LogL, convergence, AIC, BIC")
+cat("APPL", round(test_est$par, 3), round(-test_est$value, 0), test_est$convergence, round(test_aic_bic[1], 0), round(test_aic_bic[2], 0), "\n", "\n")
 
-print("Ticker, Estimated Parameters: mu, omega, alpha, beta, v, LogL, AIC, BIC")
+print("Ticker, Estimated Parameters: mu, omega, alpha, beta, v, LogL, convergence, AIC, BIC")
 
 # Estimate parameters, AIC and BIC for each ticker using initial parameters
 for(ticker in names(asset_rets)){
@@ -62,6 +64,8 @@ for(ticker in names(asset_rets)){
     ini_s2 <- var(asset_rets[[ticker]][["RET"]])
     garch_par <- c(mu = 0, omega = ini_s2/50, alpha = 0.05, beta = 0.9, v = 10)
     est_garch <- optim(par = garch_par, fn = function(p) ll_garch(p, asset_rets[[ticker]]), method = "BFGS")
+    est_garch <- optim(par = est_garch$par, fn = function(p) ll_garch(p, asset_rets[[ticker]]), method = "BFGS")
     aic_bic_garch <- compute_AIC_BIC(-est_garch$value, nrow(asset_rets[[ticker]]), length(garch_par))
-    cat(ticker, round(est_garch$par, 3), round(-est_garch$value, 0), round(aic_bic_garch[1], 0), round(aic_bic_garch[2], 0), "\n")
+    cat(ticker, round(est_garch$par, 3), round(-est_garch$value, 0), est_garch$convergence, round(aic_bic_garch[1], 0), round(aic_bic_garch[2], 0), "\n")
 }
+
